@@ -1,41 +1,115 @@
 package messaging
 
 import (
+	"fmt"
+	"net/url"
 	"sync"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type Message struct {
-	ID int 
-	Body string
+	ID           int
+	Body         string `db:"body" json:"body"`
+	PUBLISHED_AT string `db:"published_at" json:"published_at"`
+	CONSUMED_AT  string `db:"consumed_at" json:"consumed_at"`
 }
 
 type Broker struct {
-	mu sync.Mutex
+	mu     sync.Mutex
 	queues map[string][]Message
-	topics map[string][]string
+	topics map[string][]Subscriber
 }
 
-
-func NewBroker () *Broker {
+func NewBroker() *Broker {
 	return &Broker{
 		queues: make(map[string][]Message),
-		topics: make(map[string][]string),
+		topics: make(map[string][]Subscriber),
 	}
 }
 
-func (b *Broker) Publish (topic string, msg Message) int {
+type SubscriptionRequest struct {
+	Endpoint string   `json:"endpoint"`
+	Topics   []string `json:"topics"`
+}
+type Subscriber struct {
+	ID            string
+	EndPoint      string
+	Topics        []string
+	LastHeartbeat string
+	status        SubscriberStatus
+}
 
- return 0 ;	 
+type SubscriberStatus string
 
+const (
+	ACTIVE   SubscriberStatus = "active"
+	INACTIVE SubscriberStatus = "inactive"
+	FAILED   SubscriberStatus = "failed"
+)
+func (b *Broker) Subscribe(endpoint string, topics []string) (bool, error) {
+	if !isValidURL(endpoint) {
+		return false, fmt.Errorf("invalid endpoint URL: %s", endpoint)
+	}
+
+	// Create a new subscriber
+	subscriber := Subscriber{
+		ID:            uuid.New().String(),
+		EndPoint:      endpoint,
+		Topics:        topics,
+		LastHeartbeat: time.Now().Format(time.RFC3339),
+		status:        ACTIVE,
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, topic := range topics {
+		// Initialize the topic if it doesn't exist
+		if _, exists := b.topics[topic]; !exists {
+			b.topics[topic] = []Subscriber{}
+		}
+
+		subscriberExists := false
+		for _, sub := range b.topics[topic] {
+			if sub.EndPoint == endpoint {
+				subscriberExists = true
+				break
+			}
+		}
+
+		if !subscriberExists {
+			b.topics[topic] = append(b.topics[topic], subscriber)
+		}
+	}
+
+	return true, nil
 }
 
 
+func (b *Broker) Unsubscribe(topics []string) bool {
+	return false
+}
 
-func (b * Broker) Retrieve (queue string ) (Message, bool) {
+func (b *Broker) Publish(topic string, msg Message) int {
+
+	return 0
+
+}
+
+func (b *Broker) Retrieve(queue string) (Message, bool) {
 
 	return Message{
-		ID: 12,
-		Body: "hello this is me ", 
-	}, true 
+		ID:   12,
+		Body: "hello this is me ",
+	}, true
 }
 
+func isValidURL(str string) bool {
+	parsedURL, err := url.Parse(str)
+	if err != nil || parsedURL == nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return false
+	}
+	return true
+}
