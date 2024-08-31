@@ -29,9 +29,13 @@ func NewBroker() *Broker {
 	}
 }
 
-type SubscriptionRequest struct {
+type SubscribeRequest struct {
 	Endpoint string   `json:"endpoint"`
 	Topics   []string `json:"topics"`
+}
+type UnsubscribeRequest struct {
+	SubscriberID string   `json:"subscriber_id"`
+	Topics       []string `json:"topics"`
 }
 type Subscriber struct {
 	ID            string
@@ -48,9 +52,10 @@ const (
 	INACTIVE SubscriberStatus = "inactive"
 	FAILED   SubscriberStatus = "failed"
 )
-func (b *Broker) Subscribe(endpoint string, topics []string) (bool, error) {
+
+func (b *Broker) Subscribe(endpoint string, topics []string) (string, error) {
 	if !isValidURL(endpoint) {
-		return false, fmt.Errorf("invalid endpoint URL: %s", endpoint)
+		return "", fmt.Errorf("invalid endpoint URL: %s", endpoint)
 	}
 
 	// Create a new subscriber
@@ -84,12 +89,31 @@ func (b *Broker) Subscribe(endpoint string, topics []string) (bool, error) {
 		}
 	}
 
-	return true, nil
+	return subscriber.ID, nil
 }
 
+func (b *Broker) Unsubscribe(subscriberID string, topics []string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-func (b *Broker) Unsubscribe(topics []string) bool {
-	return false
+	for _, topic := range topics {
+		subscribers, exist := b.topics[topic]
+		if !exist {
+			return fmt.Errorf("topic %s not found", topic)
+		}
+
+		var index int = 0
+		for index, sub := range subscribers {
+			if sub.ID == subscriberID {
+				b.topics[topic] = append(b.topics[topic][:index], b.topics[topic][index+1:]...)
+				break
+			}
+		}
+		if len(b.topics[topic]) == index {
+			return fmt.Errorf("subscriber %s not subscribed to topic %s", subscriberID, topic)
+		}
+	}
+	return nil
 }
 
 func (b *Broker) Publish(topic string, msg Message) int {
